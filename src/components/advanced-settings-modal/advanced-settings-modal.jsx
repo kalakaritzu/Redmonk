@@ -68,6 +68,16 @@ const messages = defineMessages({
         defaultMessage: 'Remove the 200,000-item cap on lists.',
         description: 'Explanation of remove list limit'
     },
+    highQualityPenLabel: {
+        id: 'gui.advancedSettings.highQualityPen',
+        defaultMessage: 'High Quality Pen',
+        description: 'Label for the high quality pen checkbox'
+    },
+    highQualityPenHint: {
+        id: 'gui.advancedSettings.highQualityPenHint',
+        defaultMessage: 'Render pen lines at double resolution for crisper strokes, especially when zoomed in.',
+        description: 'Explanation of high quality pen'
+    },
     resetButton: {
         id: 'gui.advancedSettings.reset',
         defaultMessage: 'Reset to defaults',
@@ -85,7 +95,8 @@ const DEFAULT_STATE = {
     turboMode: false,
     infiniteClones: false,
     removeFencing: false,
-    removeListLimit: false
+    removeListLimit: false,
+    highQualityPen: false
 };
 
 class AdvancedSettingsModal extends React.PureComponent {
@@ -109,6 +120,7 @@ class AdvancedSettingsModal extends React.PureComponent {
         tweaks.setInfiniteClones(settings.infiniteClones);
         tweaks.setRemoveFencing(settings.removeFencing);
         tweaks.setRemoveListLimit(settings.removeListLimit);
+        tweaks.setHighQualityPen(vm, settings.highQualityPen);
     }
     updateAndPersist (partial) {
         const nextState = Object.assign({}, this.state, partial);
@@ -214,6 +226,22 @@ class AdvancedSettingsModal extends React.PureComponent {
                         <span className={styles.checkboxText}>
                             <span className={styles.checkboxLabel}><FormattedMessage {...messages.removeListLimitLabel} /></span>
                             <span className={styles.checkboxHint}><FormattedMessage {...messages.removeListLimitHint} /></span>
+                        </span>
+                    </label>
+
+                    <label className={styles.checkboxRow} htmlFor="redmonk-hq-pen">
+                        <input
+                            id="redmonk-hq-pen"
+                            type="checkbox"
+                            checked={this.state.highQualityPen}
+                            onChange={this.handleToggle(
+                                'highQualityPen',
+                                enabled => tweaks.setHighQualityPen(this.props.vm, enabled)
+                            )}
+                        />
+                        <span className={styles.checkboxText}>
+                            <span className={styles.checkboxLabel}><FormattedMessage {...messages.highQualityPenLabel} /></span>
+                            <span className={styles.checkboxHint}><FormattedMessage {...messages.highQualityPenHint} /></span>
                         </span>
                     </label>
 
