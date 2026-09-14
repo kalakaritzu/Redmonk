@@ -30,6 +30,7 @@ import Runtime from '../../node_modules/scratch-vm/src/engine/runtime';
 import RenderedTarget from '../../node_modules/scratch-vm/src/sprites/rendered-target';
 import Scratch3DataBlocks from '../../node_modules/scratch-vm/src/blocks/scratch3_data';
 import PenSkin from '../../node_modules/scratch-render/src/PenSkin';
+import * as twgl from 'twgl.js';
 
 const DEFAULTS = {
     // scratch-vm's own THREAD_STEP_INTERVAL default is actually 60 TPS - but
@@ -279,6 +280,28 @@ const installPenSkinPatch = () => {
             uploadOldPenPixels(this, oldPixelData);
             this._silhouetteDirty = true;
         }
+    };
+
+    // Pen line drawing (a "move + pen down" trail, as opposed to a stamp) has
+    // its own separate bug once the texture is inflated: _enterDrawLineOnBuffer
+    // sets `u_stageSize: this._size` - but this._size is the (possibly
+    // doubled) texture resolution, while the line's own position/length/
+    // thickness values are always expressed in real stage coordinates
+    // (sprites live in the fixed -240..240 / -180..180 range regardless of
+    // pen texture resolution). The line shader divides position by
+    // u_stageSize to map into clip space, so feeding it the inflated
+    // resolution instead of the true native size scales the whole line -
+    // position AND thickness together - down by the same factor pen quality
+    // is multiplied up by, which is exactly why a line drawn with High
+    // Quality Pen on comes out thinner and pulled toward center relative to
+    // where the sprite actually is. The viewport a few lines earlier in the
+    // same original method is correctly left alone - that one *should* match
+    // the real texture resolution, so the line still rasterizes crisply.
+    const originalEnterDrawLineOnBuffer = PenSkin.prototype._enterDrawLineOnBuffer;
+    PenSkin.prototype._enterDrawLineOnBuffer = function () {
+        originalEnterDrawLineOnBuffer.call(this);
+        const nativeSize = this._renderer.getNativeSize();
+        twgl.setUniforms(this._lineShader, {u_stageSize: nativeSize});
     };
 };
 
