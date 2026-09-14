@@ -1,5 +1,12 @@
+@import "colors.css";
+
 body {
     font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+::selection {
+    background: $looks-secondary;
+    color: $ui-white;
 }
 
 h2 {
