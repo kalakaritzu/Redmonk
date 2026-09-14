@@ -1,6 +1,6 @@
 import classNames from 'classnames';
 import PropTypes from 'prop-types';
-import React, {useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {FormattedMessage} from 'react-intl';
 import VM from 'scratch-vm';
 
@@ -9,6 +9,8 @@ import LanguageMenu from './language-menu.jsx';
 import MenuBarMenu from './menu-bar-menu.jsx';
 import ThemeMenu from './theme-menu.jsx';
 import {MenuItem, MenuSection} from '../menu/menu.jsx';
+import tweaks from '../../lib/tweaks.js';
+import {loadTweaks} from '../../lib/tweaks-persistence.js';
 
 import menuBarStyles from './menu-bar.css';
 import styles from './settings-menu.css';
@@ -26,6 +28,18 @@ const SettingsMenu = ({
     vm
 }) => {
     const [advancedSettingsOpen, setAdvancedSettingsOpen] = useState(false);
+
+    // SettingsMenu is always mounted as soon as the editor loads (unlike
+    // AdvancedSettingsModal, which only mounts once someone opens it) - so
+    // this is what actually re-arms a user's saved tweaks (Framerate, Turbo
+    // Mode, High Quality Pen, etc.) against a freshly loaded VM, rather than
+    // leaving them silently inert in localStorage until the modal happens to
+    // be opened.
+    useEffect(() => {
+        tweaks.applyAll(vm, loadTweaks());
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     return (
         <div
             className={classNames(menuBarStyles.menuBarItem, menuBarStyles.hoverable, menuBarStyles.themeMenu, {

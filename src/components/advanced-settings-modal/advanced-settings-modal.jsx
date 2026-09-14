@@ -7,7 +7,7 @@ import VM from 'scratch-vm';
 
 import Box from '../box/box.jsx';
 import tweaks from '../../lib/tweaks.js';
-import {loadTweaks, saveTweaks} from '../../lib/tweaks-persistence.js';
+import {DEFAULT_TWEAKS, loadTweaks, saveTweaks} from '../../lib/tweaks-persistence.js';
 
 import styles from './advanced-settings-modal.css';
 
@@ -90,15 +90,6 @@ const messages = defineMessages({
     }
 });
 
-const DEFAULT_STATE = {
-    framerate: tweaks.DEFAULTS.framerate,
-    turboMode: false,
-    infiniteClones: false,
-    removeFencing: false,
-    removeListLimit: false,
-    highQualityPen: false
-};
-
 class AdvancedSettingsModal extends React.PureComponent {
     constructor (props) {
         super(props);
@@ -107,20 +98,14 @@ class AdvancedSettingsModal extends React.PureComponent {
             'handleToggle',
             'handleReset'
         ]);
-        this.state = Object.assign({}, DEFAULT_STATE, loadTweaks());
+        this.state = loadTweaks();
     }
     componentDidMount () {
         // Re-apply saved settings to this VM instance (e.g. after a page reload).
-        this.applyAll(this.state);
-    }
-    applyAll (settings) {
-        const vm = this.props.vm;
-        tweaks.setFramerate(vm, settings.framerate);
-        tweaks.setTurboMode(vm, settings.turboMode);
-        tweaks.setInfiniteClones(settings.infiniteClones);
-        tweaks.setRemoveFencing(settings.removeFencing);
-        tweaks.setRemoveListLimit(settings.removeListLimit);
-        tweaks.setHighQualityPen(vm, settings.highQualityPen);
+        // SettingsMenu also does this unconditionally on app mount now, so this
+        // is mostly a no-op safety net for whenever this modal opens - but
+        // cheap and harmless to repeat.
+        tweaks.applyAll(this.props.vm, this.state);
     }
     updateAndPersist (partial) {
         const nextState = Object.assign({}, this.state, partial);
@@ -140,9 +125,9 @@ class AdvancedSettingsModal extends React.PureComponent {
         };
     }
     handleReset () {
-        this.applyAll(DEFAULT_STATE);
-        this.setState(DEFAULT_STATE);
-        saveTweaks(DEFAULT_STATE);
+        tweaks.applyAll(this.props.vm, DEFAULT_TWEAKS);
+        this.setState(DEFAULT_TWEAKS);
+        saveTweaks(DEFAULT_TWEAKS);
     }
     render () {
         return (<ReactModal

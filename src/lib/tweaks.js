@@ -195,6 +195,25 @@ const setHighQualityPen = (vm, enabled) => {
     }
 };
 
+/**
+ * Applies every tweak's current value to a VM instance in one call. Used both
+ * by the Advanced Settings modal (so changes take effect immediately) and by
+ * SettingsMenu (so a project loaded from localStorage-persisted settings
+ * actually has them re-armed on page load, without requiring the user to
+ * open the modal first just to "wake up" their own saved settings).
+ *
+ * @param {VM} vm
+ * @param {object} settings - shape matches AdvancedSettingsModal's DEFAULT_STATE
+ */
+const applyAll = (vm, settings) => {
+    setFramerate(vm, settings.framerate);
+    setTurboMode(vm, settings.turboMode);
+    setInfiniteClones(settings.infiniteClones);
+    setRemoveFencing(settings.removeFencing);
+    setRemoveListLimit(settings.removeListLimit);
+    setHighQualityPen(vm, settings.highQualityPen);
+};
+
 export default {
     DEFAULTS,
     setFramerate,
@@ -202,5 +221,6 @@ export default {
     setInfiniteClones,
     setRemoveFencing,
     setRemoveListLimit,
-    setHighQualityPen
+    setHighQualityPen,
+    applyAll
 };
