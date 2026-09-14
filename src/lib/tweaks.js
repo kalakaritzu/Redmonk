@@ -128,7 +128,7 @@ const PEN_QUALITY_MULTIPLIER = 2;
 
 let highQualityPenEnabled = false;
 let penSkinPatchInstalled = false;
-let originalOnNativeSizeChanged = null;
+let originalSetCanvasSize = null;
 
 /**
  * Installs a permanent (idempotent) override on PenSkin.prototype so the pen
@@ -138,22 +138,35 @@ let originalOnNativeSizeChanged = null;
  * so enlarging the texture while keeping the logical quad the same size just
  * makes strokes crisper - it doesn't shift anything.
  *
- * Patching onNativeSizeChanged (rather than _setCanvasSize directly) keeps
- * the renderer's real native size as the single source of truth: every call
- * multiplies fresh from event.newSize, so toggling the setting on/off/on
- * repeatedly can't compound the multiplier.
+ * This patches _setCanvasSize, NOT onNativeSizeChanged. PenSkin's constructor
+ * does `this.onNativeSizeChanged = this.onNativeSizeChanged.bind(this)`,
+ * which copies the method onto each instance - patching the prototype method
+ * has no effect on any pen skin that already existed when the patch was
+ * installed (it's shadowed by its own bound copy). _setCanvasSize is never
+ * rebound like that, so patching it applies uniformly to every pen skin,
+ * past and future, and also covers the constructor's own initial call.
+ *
+ * The multiplied size is clamped to the GPU's real MAX_TEXTURE_SIZE - an
+ * already-large native size (large stage layout, fullscreen, high-DPI
+ * displays) doubled can otherwise exceed what the GPU/driver supports,
+ * which fails texture allocation and makes the pen layer stop rendering
+ * entirely rather than just look wrong.
  */
 const installPenSkinPatch = () => {
     if (penSkinPatchInstalled) return;
     penSkinPatchInstalled = true;
-    originalOnNativeSizeChanged = PenSkin.prototype.onNativeSizeChanged;
-    PenSkin.prototype.onNativeSizeChanged = function (event) {
-        if (highQualityPenEnabled) {
-            const [width, height] = event.newSize;
-            this._setCanvasSize([width * PEN_QUALITY_MULTIPLIER, height * PEN_QUALITY_MULTIPLIER]);
-        } else {
-            originalOnNativeSizeChanged.call(this, event);
+    originalSetCanvasSize = PenSkin.prototype._setCanvasSize;
+    PenSkin.prototype._setCanvasSize = function (canvasSize) {
+        if (!highQualityPenEnabled) {
+            return originalSetCanvasSize.call(this, canvasSize);
         }
+        const gl = this._renderer.gl;
+        const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+        const [width, height] = canvasSize;
+        return originalSetCanvasSize.call(this, [
+            Math.min(width * PEN_QUALITY_MULTIPLIER, maxTextureSize),
+            Math.min(height * PEN_QUALITY_MULTIPLIER, maxTextureSize)
+        ]);
     };
 };
 
@@ -166,15 +179,17 @@ const setHighQualityPen = (vm, enabled) => {
     highQualityPenEnabled = Boolean(enabled);
 
     // Existing pen skin(s) only pick up a new resolution on their next
-    // NativeSizeChanged event (e.g. the window resizing) - re-trigger that
-    // now, using the renderer's current native size, so toggling the
-    // checkbox takes effect immediately instead of on the next resize.
+    // resize - re-apply now, using the renderer's own tracked native size
+    // (never touched by this patch, so it's always the true logical size -
+    // reading it back from the skin's own this._size here would compound
+    // the multiplier on every toggle), so the checkbox takes effect
+    // immediately instead of waiting for the next resize event.
     const renderer = vm && vm.runtime && vm.runtime.renderer;
     if (renderer && typeof renderer.getNativeSize === 'function') {
-        const newSize = renderer.getNativeSize();
+        const nativeSize = renderer.getNativeSize();
         (renderer._allSkins || []).forEach(skin => {
             if (skin instanceof PenSkin) {
-                skin.onNativeSizeChanged({newSize});
+                skin._setCanvasSize(nativeSize);
             }
         });
     }
