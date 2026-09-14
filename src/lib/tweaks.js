@@ -297,11 +297,25 @@ const installPenSkinPatch = () => {
     // where the sprite actually is. The viewport a few lines earlier in the
     // same original method is correctly left alone - that one *should* match
     // the real texture resolution, so the line still rasterizes crisply.
+    //
+    // This override is gated on highQualityPenEnabled, unlike the
+    // _setCanvasSize patch above. installPenSkinPatch() runs unconditionally
+    // on every page load (SettingsMenu applies persisted settings on mount
+    // regardless of their value), so an earlier ungated version of this
+    // override ran on *every* pen line segment even with the feature off -
+    // an extra getNativeSize() + setUniforms call on a path that can fire
+    // many times per second during any glide/move-with-pen-down script,
+    // adding real overhead for a value that, with the feature off, isn't
+    // even different from what the original code already sets. Gating it
+    // means the original, zero-overhead code runs untouched when the
+    // feature is off, exactly as if this patch were never installed.
     const originalEnterDrawLineOnBuffer = PenSkin.prototype._enterDrawLineOnBuffer;
     PenSkin.prototype._enterDrawLineOnBuffer = function () {
         originalEnterDrawLineOnBuffer.call(this);
-        const nativeSize = this._renderer.getNativeSize();
-        twgl.setUniforms(this._lineShader, {u_stageSize: nativeSize});
+        if (highQualityPenEnabled) {
+            const nativeSize = this._renderer.getNativeSize();
+            twgl.setUniforms(this._lineShader, {u_stageSize: nativeSize});
+        }
     };
 };
 
