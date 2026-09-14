@@ -131,12 +131,97 @@ let penSkinPatchInstalled = false;
 let originalSetCanvasSize = null;
 
 /**
+ * Reads the pen layer's current framebuffer pixels back to the CPU, before
+ * anything about its size changes.
+ *
+ * This has to happen strictly BEFORE calling the stock _setCanvasSize:
+ * that method's own resize path does
+ * `twgl.resizeFramebufferInfo(gl, this._framebuffer, attachments, width, height)`
+ * when a framebuffer already exists - which mutates the SAME framebuffer
+ * object (and its underlying WebGLFramebuffer) in place, reattaching a new,
+ * blank texture at the new size, rather than creating a new one. Capturing
+ * `this._framebuffer` as a reference before calling it and reading from that
+ * reference afterward reads back the *new*, blank framebuffer, not the old
+ * content - it's the same object. (TurboWarp's real fix sidesteps this by
+ * never calling resizeFramebufferInfo at all - their _setCanvasSize always
+ * creates a brand new framebuffer instead, per a comment in their source:
+ * "resize framebuffer info doesn't work here, so always make a new
+ * framebuffer". This does it the other way around: read out before the
+ * mutation instead of avoiding the mutation.)
+ *
+ * Three approaches were tried for the actual pixel copy/scale before this
+ * CPU-side one: a direct port of TurboWarp's shader-based _drawPenTexture
+ * (fetched and read from https://github.com/TurboWarp/scratch-render rather
+ * than re-derived) hit GL_INVALID_OPERATION right at the draw call with
+ * every prior state-setting call reporting no error; gl.blitFramebuffer (a
+ * WebGL2 built-in, no shader needed) turned out to be unavailable since this
+ * renderer's context is WebGL1. Both were narrowed down via on-page logging,
+ * since this environment has no devtools console access.
+ *
+ * @param {PenSkin} skin
+ * @param {Array<number>} size - the skin's current [width, height]
+ * @return {?{pixels: Uint8Array, width: number, height: number}} null if
+ *   there was nothing to read (e.g. first-ever creation, no framebuffer yet)
+ */
+const readOldPenPixels = (skin, size) => {
+    if (!skin._framebuffer) return null;
+    const gl = skin._renderer.gl;
+    const [width, height] = size;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, skin._framebuffer.framebuffer);
+    const pixels = new Uint8Array(width * height * 4);
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return {pixels, width, height};
+};
+
+/**
+ * Scales previously-read-back pen pixels (see readOldPenPixels) onto a 2D
+ * canvas (drawImage handles arbitrary resize without any WebGL shader or
+ * attribute state - a far smaller surface for WebGL state bugs to hide in
+ * than a GPU-side draw call), then uploads the result into the skin's
+ * *current* texture with gl.texImage2D. Call after the resize has already
+ * happened, so skin._texture is the new, correctly-sized destination.
+ *
+ * @param {PenSkin} skin
+ * @param {{pixels: Uint8Array, width: number, height: number}} oldPixelData
+ */
+const uploadOldPenPixels = (skin, oldPixelData) => {
+    const gl = skin._renderer.gl;
+    const {pixels, width: oldWidth, height: oldHeight} = oldPixelData;
+    const [newWidth, newHeight] = skin._size;
+
+    const oldCanvas = document.createElement('canvas');
+    oldCanvas.width = oldWidth;
+    oldCanvas.height = oldHeight;
+    const oldCtx = oldCanvas.getContext('2d');
+    const imageData = oldCtx.createImageData(oldWidth, oldHeight);
+    imageData.data.set(pixels);
+    oldCtx.putImageData(imageData, 0, 0);
+
+    const newCanvas = document.createElement('canvas');
+    newCanvas.width = newWidth;
+    newCanvas.height = newHeight;
+    const newCtx = newCanvas.getContext('2d');
+    newCtx.imageSmoothingEnabled = false; // match the pen texture's own NEAREST filtering
+    newCtx.drawImage(oldCanvas, 0, 0, oldWidth, oldHeight, 0, 0, newWidth, newHeight);
+
+    gl.bindTexture(gl.TEXTURE_2D, skin._texture);
+    // No UNPACK_FLIP_Y_WEBGL here (tried it, made things upside-down): the
+    // readPixels -> canvas -> texImage2D round trip apparently keeps the
+    // pen texture's orientation as-is without needing a compensating flip.
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, newCanvas);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+};
+
+/**
  * Installs a permanent (idempotent) override on PenSkin.prototype so the pen
  * layer's texture can be rendered at a higher resolution than the stage's
- * native size. The pen's drawing shader maps stage coordinates onto the
- * texture via a u_stageSize uniform derived from this._size (see PenSkin.js),
- * so enlarging the texture while keeping the logical quad the same size just
- * makes strokes crisper - it doesn't shift anything.
+ * native size, without losing existing drawings when that resolution
+ * changes (toggling the setting, or a real window resize). The pen's drawing
+ * shader maps stage coordinates onto the texture via a u_stageSize uniform
+ * derived from this._size (see PenSkin.js), so enlarging the texture while
+ * keeping the logical quad the same size just makes strokes crisper - it
+ * doesn't shift anything.
  *
  * This patches _setCanvasSize, NOT onNativeSizeChanged. PenSkin's constructor
  * does `this.onNativeSizeChanged = this.onNativeSizeChanged.bind(this)`,
@@ -157,16 +242,43 @@ const installPenSkinPatch = () => {
     penSkinPatchInstalled = true;
     originalSetCanvasSize = PenSkin.prototype._setCanvasSize;
     PenSkin.prototype._setCanvasSize = function (canvasSize) {
-        if (!highQualityPenEnabled) {
-            return originalSetCanvasSize.call(this, canvasSize);
-        }
         const gl = this._renderer.gl;
-        const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
         const [width, height] = canvasSize;
-        return originalSetCanvasSize.call(this, [
-            Math.min(width * PEN_QUALITY_MULTIPLIER, maxTextureSize),
-            Math.min(height * PEN_QUALITY_MULTIPLIER, maxTextureSize)
-        ]);
+        let targetWidth = width;
+        let targetHeight = height;
+        if (highQualityPenEnabled) {
+            const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+            targetWidth = Math.min(width * PEN_QUALITY_MULTIPLIER, maxTextureSize);
+            targetHeight = Math.min(height * PEN_QUALITY_MULTIPLIER, maxTextureSize);
+        }
+
+        // Nothing would actually change - skip (mirrors TurboWarp's own
+        // guard), rather than needlessly redrawing the buffer onto itself.
+        if (this._size && this._size[0] === targetWidth && this._size[1] === targetHeight) {
+            return;
+        }
+
+        const oldPixelData = this._size ? readOldPenPixels(this, this._size) : null;
+        originalSetCanvasSize.call(this, [targetWidth, targetHeight]);
+
+        // Fix up the orphaned-texture bug this resize likely just triggered
+        // (see uploadOldPenPixels' comment): on every resize past the first,
+        // twgl.resizeFramebufferInfo keeps resizing the framebuffer's
+        // ORIGINAL attachment in place and ignores the brand-new texture
+        // stock _setCanvasSize just created and assigned to this._texture,
+        // leaving this._texture pointing at a texture nothing is actually
+        // drawn into. getTexture()/getUniforms() read this._texture, so
+        // realigning it with the framebuffer's real attachment here is what
+        // makes compositing (and reads for preservation) see real content
+        // again, not just what my own upload happens to touch.
+        if (this._framebuffer && this._framebuffer.attachments[0] !== this._texture) {
+            this._texture = this._framebuffer.attachments[0];
+        }
+
+        if (oldPixelData) {
+            uploadOldPenPixels(this, oldPixelData);
+            this._silhouetteDirty = true;
+        }
     };
 };
 
