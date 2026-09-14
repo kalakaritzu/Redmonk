@@ -10,26 +10,26 @@
  *  - fencing overrides an instance method (RenderedTarget.prototype.keepInFence),
  *    restorable to the original implementation.
  *
- * High-quality pen (below) is the one renderer-level (scratch-render) tweak
- * included so far - it forces the pen layer's texture resolution up
- * independent of the stage's native size, same idea as TurboWarp's version.
- * Frame interpolation and arbitrary custom stage sizes are NOT included:
- * interpolation means hooking the render draw loop itself to blend sprite
- * transforms between logic steps (not a single patchable method), and custom
- * stage sizes touch coordinate math across gui/render/vm together. Both are
- * real engine work, not a patch from application code, so left out rather
- * than faked.
+ * A High Quality Pen tweak (patching scratch-render's PenSkin to render at a
+ * higher texture resolution) was attempted and reverted: it left the pen
+ * layer unable to render anything at all, even after switching the setting
+ * back off, and diagnosing why needs real WebGL error/console visibility
+ * this environment doesn't have. Frame interpolation and arbitrary custom
+ * stage sizes were never attempted - interpolation means hooking the render
+ * draw loop itself to blend sprite transforms between logic steps (not a
+ * single patchable method), and custom stage sizes touch coordinate math
+ * across gui/render/vm together. All three are real engine work, not a
+ * patch from application code, so none are included here.
  */
 
-// scratch-vm/scratch-render's package.json "exports" maps only expose the
-// package root (webpack/browser/node entry bundles), so these internals can't
-// be reached via the "scratch-vm/..." specifier form - only via a real
-// relative filesystem path straight into node_modules, which bypasses the
-// exports map entirely.
+// scratch-vm's package.json "exports" map only exposes the package root
+// (webpack/browser/node entry bundles), so these internals can't be reached
+// via the "scratch-vm/..." specifier form - only via a real relative
+// filesystem path straight into node_modules, which bypasses the exports map
+// entirely.
 import Runtime from '../../node_modules/scratch-vm/src/engine/runtime';
 import RenderedTarget from '../../node_modules/scratch-vm/src/sprites/rendered-target';
 import Scratch3DataBlocks from '../../node_modules/scratch-vm/src/blocks/scratch3_data';
-import PenSkin from '../../node_modules/scratch-render/src/PenSkin';
 
 const DEFAULTS = {
     // scratch-vm's own THREAD_STEP_INTERVAL default is actually 60 TPS - but
@@ -124,68 +124,11 @@ const setRemoveListLimit = enabled => {
     });
 };
 
-const PEN_QUALITY_MULTIPLIER = 2;
-
-let highQualityPenEnabled = false;
-let penSkinPatchInstalled = false;
-let originalOnNativeSizeChanged = null;
-
-/**
- * Installs a permanent (idempotent) override on PenSkin.prototype so the pen
- * layer's texture can be rendered at a higher resolution than the stage's
- * native size. The pen's drawing shader maps stage coordinates onto the
- * texture via a u_stageSize uniform derived from this._size (see PenSkin.js),
- * so enlarging the texture while keeping the logical quad the same size just
- * makes strokes crisper - it doesn't shift anything.
- *
- * Patching onNativeSizeChanged (rather than _setCanvasSize directly) keeps
- * the renderer's real native size as the single source of truth: every call
- * multiplies fresh from event.newSize, so toggling the setting on/off/on
- * repeatedly can't compound the multiplier.
- */
-const installPenSkinPatch = () => {
-    if (penSkinPatchInstalled) return;
-    penSkinPatchInstalled = true;
-    originalOnNativeSizeChanged = PenSkin.prototype.onNativeSizeChanged;
-    PenSkin.prototype.onNativeSizeChanged = function (event) {
-        if (highQualityPenEnabled) {
-            const [width, height] = event.newSize;
-            this._setCanvasSize([width * PEN_QUALITY_MULTIPLIER, height * PEN_QUALITY_MULTIPLIER]);
-        } else {
-            originalOnNativeSizeChanged.call(this, event);
-        }
-    };
-};
-
-/**
- * @param {VM} vm
- * @param {boolean} enabled
- */
-const setHighQualityPen = (vm, enabled) => {
-    installPenSkinPatch();
-    highQualityPenEnabled = Boolean(enabled);
-
-    // Existing pen skin(s) only pick up a new resolution on their next
-    // NativeSizeChanged event (e.g. the window resizing) - re-trigger that
-    // now, using the renderer's current native size, so toggling the
-    // checkbox takes effect immediately instead of on the next resize.
-    const renderer = vm && vm.runtime && vm.runtime.renderer;
-    if (renderer && typeof renderer.getNativeSize === 'function') {
-        const newSize = renderer.getNativeSize();
-        (renderer._allSkins || []).forEach(skin => {
-            if (skin instanceof PenSkin) {
-                skin.onNativeSizeChanged({newSize});
-            }
-        });
-    }
-};
-
 export default {
     DEFAULTS,
     setFramerate,
     setTurboMode,
     setInfiniteClones,
     setRemoveFencing,
-    setRemoveListLimit,
-    setHighQualityPen
+    setRemoveListLimit
 };
