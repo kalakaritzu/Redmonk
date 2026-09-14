@@ -30,7 +30,7 @@ button::-moz-focus-inner {
 }
 
 .button:hover {
-    background: $looks-secondary-dark;
+    background: $looks-primary;
 }
 
 .button:active {
@@ -133,7 +133,7 @@ button::-moz-focus-inner {
     is not very easy to style.
 */
 .tooltip {
-    background-color: $looks-secondary-dark !important;
+    background-color: $looks-primary !important;
     opacity: 1 !important;
     border: 1px solid hsla(0, 0%, 0%, .1) !important;
     box-shadow: 0 0 .5rem hsla(0, 0%, 0%, .25) !important;
@@ -141,7 +141,7 @@ button::-moz-focus-inner {
 }
 
 .tooltip:after {
-    background-color: $looks-secondary-dark;
+    background-color: $looks-primary;
 }
 
 .coming-soon-tooltip {
