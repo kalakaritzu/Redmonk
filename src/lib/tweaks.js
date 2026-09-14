@@ -38,33 +38,6 @@ const DEFAULTS = {
 
 let originalKeepInFence = RenderedTarget.prototype.keepInFence;
 
-let originalStep = null;
-let stepCount = 0;
-
-/**
- * Wraps Runtime.prototype._step (the function the stepping interval calls on
- * every tick, whether or not any script is running) to count real calls per
- * second. This is how "is the framerate tweak actually doing anything" can be
- * proven/measured live, rather than asserted - see getAndResetStepCount.
- */
-const enableStepCounter = () => {
-    if (originalStep) return; // already patched, idempotent
-    originalStep = Runtime.prototype._step;
-    Runtime.prototype._step = function (...args) {
-        stepCount++;
-        return originalStep.apply(this, args);
-    };
-};
-
-/**
- * @return {number} how many engine steps happened since the last call
- */
-const getAndResetStepCount = () => {
-    const count = stepCount;
-    stepCount = 0;
-    return count;
-};
-
 const restartStepping = vm => {
     const runtime = vm && vm.runtime;
     if (runtime && runtime._steppingInterval) {
@@ -150,7 +123,5 @@ export default {
     setTurboMode,
     setInfiniteClones,
     setRemoveFencing,
-    setRemoveListLimit,
-    enableStepCounter,
-    getAndResetStepCount
+    setRemoveListLimit
 };

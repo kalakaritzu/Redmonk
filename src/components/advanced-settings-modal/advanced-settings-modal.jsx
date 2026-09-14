@@ -28,16 +28,6 @@ const messages = defineMessages({
         defaultMessage: 'Framerate',
         description: 'Label for the framerate slider'
     },
-    measuring: {
-        id: 'gui.advancedSettings.measuring',
-        defaultMessage: 'Measuring actual engine step rate…',
-        description: 'Shown briefly before the first real measurement comes in'
-    },
-    measuredRate: {
-        id: 'gui.advancedSettings.measuredRate',
-        defaultMessage: 'Actually running at {rate} steps/sec right now',
-        description: 'Live measured engine step rate, proving the framerate setting is really in effect'
-    },
     turboModeLabel: {
         id: 'gui.advancedSettings.turboMode',
         defaultMessage: 'Turbo Mode',
@@ -106,24 +96,11 @@ class AdvancedSettingsModal extends React.PureComponent {
             'handleToggle',
             'handleReset'
         ]);
-        this.state = Object.assign({}, DEFAULT_STATE, loadTweaks(), {measuredStepsPerSec: null});
+        this.state = Object.assign({}, DEFAULT_STATE, loadTweaks());
     }
     componentDidMount () {
         // Re-apply saved settings to this VM instance (e.g. after a page reload).
         this.applyAll(this.state);
-
-        // Live proof that the framerate tweak is real: count actual engine
-        // steps/second (the stepping interval ticks continuously regardless of
-        // whether a project script is running) and refresh the readout every
-        // second while this modal is open.
-        tweaks.enableStepCounter();
-        tweaks.getAndResetStepCount(); // clear out anything counted before this modal opened
-        this.measureInterval = setInterval(() => {
-            this.setState({measuredStepsPerSec: tweaks.getAndResetStepCount()});
-        }, 1000);
-    }
-    componentWillUnmount () {
-        clearInterval(this.measureInterval);
     }
     applyAll (settings) {
         const vm = this.props.vm;
@@ -186,16 +163,6 @@ class AdvancedSettingsModal extends React.PureComponent {
                             />
                             <span className={styles.sliderValue}>{this.state.framerate} FPS</span>
                         </Box>
-                        <span className={styles.measuredRate}>
-                            {this.state.measuredStepsPerSec === null ? (
-                                <FormattedMessage {...messages.measuring} />
-                            ) : (
-                                <FormattedMessage
-                                    {...messages.measuredRate}
-                                    values={{rate: this.state.measuredStepsPerSec}}
-                                />
-                            )}
-                        </span>
                     </Box>
 
                     <label className={styles.checkboxRow} htmlFor="redmonk-turbo">
