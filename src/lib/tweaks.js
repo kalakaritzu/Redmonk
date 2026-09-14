@@ -25,12 +25,45 @@ import RenderedTarget from '../../node_modules/scratch-vm/src/sprites/rendered-t
 import Scratch3DataBlocks from '../../node_modules/scratch-vm/src/blocks/scratch3_data';
 
 const DEFAULTS = {
-    framerate: 30, // matches Runtime.THREAD_STEP_INTERVAL's built-in 1000 / 30
+    // scratch-vm's own THREAD_STEP_INTERVAL default is actually 60 TPS - but
+    // scratch-gui always calls vm.setCompatibilityMode(true) on startup
+    // (lib/vm-manager-hoc.jsx), which makes the engine use the SEPARATE
+    // THREAD_STEP_INTERVAL_COMPATIBILITY getter (30 TPS) instead. So the
+    // framerate the editor actually runs at by default is 30, and both
+    // getters need patching below or compatibility mode silently wins.
+    framerate: 30,
     maxClones: 300, // matches Runtime.MAX_CLONES
     listItemLimit: 200000 // matches Scratch3DataBlocks.LIST_ITEM_LIMIT
 };
 
 let originalKeepInFence = RenderedTarget.prototype.keepInFence;
+
+let originalStep = null;
+let stepCount = 0;
+
+/**
+ * Wraps Runtime.prototype._step (the function the stepping interval calls on
+ * every tick, whether or not any script is running) to count real calls per
+ * second. This is how "is the framerate tweak actually doing anything" can be
+ * proven/measured live, rather than asserted - see getAndResetStepCount.
+ */
+const enableStepCounter = () => {
+    if (originalStep) return; // already patched, idempotent
+    originalStep = Runtime.prototype._step;
+    Runtime.prototype._step = function (...args) {
+        stepCount++;
+        return originalStep.apply(this, args);
+    };
+};
+
+/**
+ * @return {number} how many engine steps happened since the last call
+ */
+const getAndResetStepCount = () => {
+    const count = stepCount;
+    stepCount = 0;
+    return count;
+};
 
 const restartStepping = vm => {
     const runtime = vm && vm.runtime;
@@ -47,7 +80,17 @@ const restartStepping = vm => {
  */
 const setFramerate = (vm, fps) => {
     const clamped = Math.max(1, Math.min(999, Math.round(fps) || DEFAULTS.framerate));
+    // Patch both getters - scratch-gui runs in compatibility mode by default
+    // (see the DEFAULTS comment above), so THREAD_STEP_INTERVAL_COMPATIBILITY
+    // is the one actually read by Runtime.prototype.start(). Patching only
+    // THREAD_STEP_INTERVAL would silently do nothing.
     Object.defineProperty(Runtime, 'THREAD_STEP_INTERVAL', {
+        configurable: true,
+        get () {
+            return 1000 / clamped;
+        }
+    });
+    Object.defineProperty(Runtime, 'THREAD_STEP_INTERVAL_COMPATIBILITY', {
         configurable: true,
         get () {
             return 1000 / clamped;
@@ -107,5 +150,7 @@ export default {
     setTurboMode,
     setInfiniteClones,
     setRemoveFencing,
-    setRemoveListLimit
+    setRemoveListLimit,
+    enableStepCounter,
+    getAndResetStepCount
 };

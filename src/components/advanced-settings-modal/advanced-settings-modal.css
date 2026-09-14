@@ -78,6 +78,13 @@
     text-align: right;
 }
 
+.measured-rate {
+    font-variant-numeric: tabular-nums;
+    font-size: 0.78rem;
+    font-family: "Courier New", monospace;
+    color: $extensions-primary;
+}
+
 .checkbox-row {
     display: flex;
     align-items: flex-start;
