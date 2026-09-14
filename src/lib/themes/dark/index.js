@@ -6,10 +6,10 @@ const blockColors = {
         quaternary: '#4C97FF'
     },
     looks: {
-        primary: '#1E1433',
+        primary: '#331419',
         secondary: '#4C4C4C',
-        tertiary: '#9966FF',
-        quaternary: '#9966FF'
+        tertiary: '#E66570',
+        quaternary: '#E66570'
     },
     sounds: {
         primary: '#291329',
